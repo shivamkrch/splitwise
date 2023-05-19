@@ -80,13 +80,64 @@ export class SplitInfo {
   }
 }
 
+class ExpenseInfo {
+  private _name: string;
+  private _payerId: string;
+  private _amount: number;
+  private _splitType: SplitType;
+  private _splitInfos: SplitInfo[];
+  private _dateTime: Date;
+
+  constructor(
+    name: string,
+    payerId: string,
+    amt: number,
+    splitType: SplitType,
+    splitInfos: SplitInfo[],
+    dateTime?: Date
+  ) {
+    this._name = name;
+    this._payerId = payerId;
+    this._amount = amt;
+    this._splitType = splitType;
+    this._splitInfos = splitInfos;
+    this._dateTime = dateTime ?? new Date();
+  }
+
+  get name() {
+    return this._name;
+  }
+
+  get payerId() {
+    return this._payerId;
+  }
+
+  get amount() {
+    return this._amount;
+  }
+
+  get splitType() {
+    return this._splitType;
+  }
+
+  get splitInfos() {
+    return this._splitInfos;
+  }
+
+  get dateTime() {
+    return this._dateTime;
+  }
+}
+
 export default class Splitwise {
   private _users: Map<string, User>;
   private _balances: Map<string, Map<string, number>>;
+  private _history: ExpenseInfo[];
 
   constructor(users: string[]) {
     this._users = new Map<string, User>();
     this._balances = new Map<string, Map<string, number>>();
+    this._history = [];
 
     for (let i = 0; i < users.length; ++i) {
       const newUser = new User(`u${i + 1}`, users[i]);
@@ -96,12 +147,13 @@ export default class Splitwise {
   }
 
   addExpense(
+    name: string,
     payerId: string,
     amount: number,
     splitType: SplitType,
     splitInfos: SplitInfo[]
   ) {
-    if (splitType !== SplitType.EQUAL) {
+    if (splitType === SplitType.EXACT || splitType === SplitType.PERCENT) {
       const totalSplitValue = splitInfos.reduce<number>(
         (prev, curr) => prev + (curr.splitValue ?? 0),
         0
@@ -150,6 +202,10 @@ export default class Splitwise {
         this._balances.set(splitInfo.userId, currUserBal!);
       }
     }
+
+    this._history.push(
+      new ExpenseInfo(name, payerId, amount, splitType, splitInfos)
+    );
   }
 
   getBalances(includeZeroBal: boolean = false): UserBalance[] {
@@ -163,15 +219,33 @@ export default class Splitwise {
     return userBalances;
   }
 
-  getBalance(userId: string, includeZeroBal: boolean = false) {
-    const userBalance = new UserBalance(this._users.get(userId)!);
+  getBalance(userId: string, includeZeroBal: boolean = false): UserBalance {
+    const userBalance = new UserBalance(this.getUser(userId));
     const userBal = this._balances.get(userId);
 
     for (let [payerId, amt] of userBal ?? []) {
       if (amt || includeZeroBal)
-        userBalance.addPerUserBalance(this._users.get(payerId)!, amt);
+        userBalance.addPerUserBalance(this.getUser(payerId), amt);
     }
 
     return userBalance;
+  }
+
+  getUserPassbook(userId: string): ExpenseInfo[] {
+    return this._history
+      .filter(
+        (expenseInfo) =>
+          expenseInfo.payerId === userId ||
+          expenseInfo.splitInfos.some(
+            (splitInfo) => splitInfo.userId === userId
+          )
+      )
+      .reverse();
+  }
+
+  getUser(userId: string): User {
+    const user = this._users.get(userId);
+    if (!user) throw new Error("User not found");
+    return user;
   }
 }
